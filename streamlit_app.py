@@ -1,151 +1,110 @@
 import streamlit as st
 import pandas as pd
 import math
-from pathlib import Path
+import matplotlib.pyplot as plt
 
-# Set the title and favicon that appear in the Browser's tab bar.
-st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
-)
+# Initialize lists
+Rf, RW, FR, RB, RTR, ve, RA, RApp, RT, EP, SM, PD, SP, BP = ([] for _ in range(14))
 
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
+# Function to calculate resistance and power
+def calculate_resistance_and_power(f, g, LOA, LWL, LBP, LCB, B, T, CB, CP, CM, CWL, S, M, ABT, hB, ATR, n, V, Csternchoice, Bulbchoice, Sapp, Appendage):
+    results = []
 
-@st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file.
+    # FRICTIONAL RESISTANCE
+    for vkn in range(1, n + 1):
+        v = vkn * 0.5144  # Convert knots to m/s
+        Re = (v * LBP) / M
+        CF = (0.075 / (((math.log10(Re)) - 2) ** 2))
+        ACF = 0.00051
+        R = (CF + ACF) * (0.5 * f * S * (v ** 2))
+        Rf.append(R)
+        ve.append(v)
 
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
-    """
+    # WAVE MAKING RESISTANCE
+    for v in ve:
+        Fr = v / (math.sqrt(g * LBP))
+        c1 = 2223105 * ((T / B) ** 1.07961) * ((90 - 1) ** -1.37565)
+        Rw = c1 * v * f * g  # Simplified formula for illustration
+        RW.append(Rw)
 
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
+    # Total Resistance Calculation
+    for i in range(len(Rf)):
+        total_resistance = Rf[i] + RW[i]
+        RT.append(total_resistance)
 
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
+    # Effective Power and Other Calculations
+    for i in range(len(RT)):
+        effective_power = RT[i] * ve[i]
+        EP.append(effective_power)
+        SM.append(effective_power * 1.15)
+        PD.append(effective_power / 0.65)
+        SP.append(PD[i] / 0.95)
+        BP.append(SP[i] / 0.85)
 
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
-    )
+    # Compile results into DataFrame
+    df = pd.DataFrame({
+        'Velocity (m/s)': ve,
+        'Frictional Resistance (N)': Rf,
+        'Wave Resistance (N)': RW,
+        'Total Resistance (N)': RT,
+        'Effective Power (W)': EP,
+        'Sea Margin (W)': SM,
+        'Delivered Power (W)': PD,
+        'Shaft Power (W)': SP,
+        'Brake Power (W)': BP
+    })
+    return df
 
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
+# Streamlit UI
+st.title("Resistance and Power Calculator")
 
-    return gdp_df
+# Input Form
+with st.form("input_form"):
+    st.subheader("Input Parameters")
+    f = st.number_input("Density (ρ) (kg/m^3)", value=1025.0)
+    g = st.number_input("Gravity (m/s²)", value=9.81)
+    LOA = st.number_input("Length Overall (LOA) (m)", value=200.0)
+    LWL = st.number_input("Length at Waterline (LWL) (m)", value=190.0)
+    LBP = st.number_input("Length Between Perpendiculars (LBP) (m)", value=185.0)
+    LCB = st.number_input("LCB (%)", value=0.5)
+    B = st.number_input("Breadth (B) (m)", value=32.0)
+    T = st.number_input("Draft (T) (m)", value=12.0)
+    CB = st.number_input("Block Coefficient (Cb)", value=0.8)
+    CP = st.number_input("Prismatic Coefficient (Cp)", value=0.65)
+    CM = st.number_input("Midship Coefficient (Cm)", value=0.9)
+    CWL = st.number_input("Waterline Coefficient (Cwl)", value=0.85)
+    S = st.number_input("Wetted Surface Area (S) (m²)", value=8000.0)
+    M = st.number_input("Viscosity (Ns/m²)", value=1.15e-6)
+    ABT = st.number_input("ABT (m²)", value=50.0)
+    hB = st.number_input("hB (m)", value=5.0)
+    ATR = st.number_input("ATR (m²)", value=60.0)
+    n = st.number_input("Number of Speeds", value=10, step=1)
+    V = st.number_input("Underwater Volume (V) (m³)", value=25000.0)
+    Csternchoice = st.selectbox("Cstern Choice", options=[1, 2, 3, 4], index=0)
+    Bulbchoice = st.selectbox("Bulb Choice", options=[1, 0], index=0, format_func=lambda x: "Yes" if x == 1 else "No")
+    Sapp = st.number_input("Sapp (m²)", value=100.0)
+    Appendage = st.selectbox("Appendage Type", options=[1, 2, 3, 4, 5], index=0)
 
-gdp_df = get_gdp_data()
+    submitted = st.form_submit_button("Calculate")
 
-# -----------------------------------------------------------------------------
-# Draw the actual page
+# Calculation and Results
+if submitted:
+    result_df = calculate_resistance_and_power(f, g, LOA, LWL, LBP, LCB, B, T, CB, CP, CM, CWL, S, M, ABT, hB, ATR, n, V, Csternchoice, Bulbchoice, Sapp, Appendage)
+    st.subheader("Results")
+    st.dataframe(result_df)
 
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
+    # Plots
+    st.subheader("Plots")
+    fig, ax = plt.subplots()
+    ax.plot(ve, RT, label="Total Resistance")
+    ax.set_xlabel("Velocity (m/s)")
+    ax.set_ylabel("Resistance (N)")
+    ax.legend()
+    st.pyplot(fig)
 
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
-
-# Add some spacing
-''
-''
-
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
-
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
-
-countries = gdp_df['Country Code'].unique()
-
-if not len(countries):
-    st.warning("Select at least one country")
-
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
-
-''
-''
-''
-
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
-]
-
-st.header('GDP over time', divider='gray')
-
-''
-
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
-)
-
-''
-''
-
-
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
-
-st.header(f'GDP in {to_year}', divider='gray')
-
-''
-
-cols = st.columns(4)
-
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
-
-    with col:
-        first_gdp = first_year[first_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[last_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
-        else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
-
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
-        )
+    fig, ax = plt.subplots()
+    ax.plot(ve, BP, label="Brake Power")
+    ax.set_xlabel("Velocity (m/s)")
+    ax.set_ylabel("Power (W)")
+    ax.legend()
+    st.pyplot(fig)
